@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agenda da Semana</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <div class="nav">
+      <button id="prev-week" aria-label="Semana anterior">&lt;</button>
+      <div id="week-label">—</div>
+      <button id="next-week" aria-label="Próxima semana">&gt;</button>
+      <button id="btn-hoje">Hoje</button>
+    </div>
+
+    <div class="grade-semana">
+      <div class="linha cabecalho-dias" id="cabecalho-dias">
+        <div class="gutter"></div>
+      </div>
+
+      <div class="linha dia-inteiro-linha" id="dia-inteiro-linha">
+        <div class="gutter">dia<br>inteiro</div>
+      </div>
+
+      <div class="grade-scroll" id="grade-scroll">
+        <div class="grade-conteudo">
+          <div class="gutter-horas" id="gutter-horas"></div>
+          <div class="colunas-dias" id="colunas-dias"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="painel-overlay" hidden>
+    <div id="painel">
+      <div class="painel-topo">
+        <h2 id="painel-titulo-dia">—</h2>
+        <button id="painel-fechar" aria-label="Fechar">&times;</button>
+      </div>
+      <ul id="painel-lista"></ul>
+      <form id="painel-form">
+        <label class="dia-inteiro-toggle">
+          <input type="checkbox" id="input-dia-inteiro">
+          Dia inteiro
+        </label>
+        <div class="linha-horas" id="linha-horas">
+          <input type="time" id="input-inicio" value="09:00">
+          <span>até</span>
+          <input type="time" id="input-fim" value="10:00">
+        </div>
+        <div id="cores-picker"></div>
+        <div class="linha-form">
+          <input type="text" id="input-titulo" placeholder="Título do evento..." autocomplete="off" required>
+          <button type="submit">+</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
