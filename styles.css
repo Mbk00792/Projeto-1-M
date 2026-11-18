@@ -52,10 +52,14 @@ body {
 
 #week-label {
   flex: 1;
+  min-width: 0;
   text-align: center;
   font-weight: 600;
   font-size: 0.95rem;
   color: #ddd;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 #btn-hoje {
@@ -95,6 +99,23 @@ body {
 
 .dia-header {
   text-align: center;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+
+.dia-header:focus-visible {
+  outline: 2px solid var(--azul);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+
+.dia-header.selecionado {
+  background: rgba(10, 132, 255, 0.16);
+  border-radius: 8px;
 }
 
 .dia-header .abrev {
@@ -117,7 +138,6 @@ body {
   justify-content: center;
   font-size: 1.15rem;
   border-radius: 50%;
-  cursor: pointer;
 }
 
 .dia-header.hoje .numero {
@@ -139,10 +159,6 @@ body {
   padding: 4px 3px;
   cursor: pointer;
   border-left: 1px solid var(--linha);
-}
-
-.coluna-dia-inteiro:first-child {
-  border-left: none;
 }
 
 .chip-dia-inteiro {
@@ -209,8 +225,6 @@ body {
 
 .evento-bloco {
   position: absolute;
-  left: 2px;
-  right: 2px;
   border-radius: 6px;
   padding: 3px 6px;
   font-size: 0.66rem;
@@ -317,13 +331,16 @@ body {
 
 #painel-lista li {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: space-between;
-  gap: 8px;
   background: #000;
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 0;
   font-size: 0.82rem;
+}
+
+#painel-lista li.editando {
+  box-shadow: inset 0 0 0 1px var(--azul);
 }
 
 #painel-lista .evento-info {
@@ -331,6 +348,15 @@ body {
   align-items: center;
   gap: 8px;
   overflow: hidden;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
 }
 
 #painel-lista .ponto {
@@ -357,13 +383,13 @@ body {
   color: var(--texto-muted);
 }
 
-#painel-lista button {
+#painel-lista .btn-remover {
   background: none;
   border: none;
   color: var(--vermelho);
   font-size: 1rem;
   cursor: pointer;
-  flex-shrink: 0;
+  padding: 0 12px;
 }
 
 #painel-lista .vazio {
@@ -481,6 +507,20 @@ body {
   box-shadow: 0 0 0 2px var(--painel-bg), 0 0 0 4px #fff;
 }
 
+#btn-cancelar-edicao {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  color: var(--texto-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+#btn-cancelar-edicao:hover {
+  color: #fff;
+}
+
 .linha-form {
   display: flex;
   gap: 8px;
@@ -497,7 +537,7 @@ body {
   font-size: 0.85rem;
 }
 
-.linha-form button {
+#btn-salvar {
   width: 36px;
   flex-shrink: 0;
   border: none;
@@ -512,12 +552,42 @@ body {
   :root {
     --hora-altura: 40px;
   }
+
   .dia-header .numero {
     width: 26px;
     height: 26px;
     font-size: 0.95rem;
   }
-  .evento-bloco {
-    font-size: 0.58rem;
+
+  .grade-semana.visao-dia .cabecalho-dias {
+    grid-template-columns: repeat(7, 1fr);
+  }
+
+  .grade-semana.visao-dia .cabecalho-dias .gutter {
+    display: none;
+  }
+
+  .grade-semana.visao-dia .dia-inteiro-linha {
+    grid-template-columns: 46px 1fr;
+  }
+
+  .grade-semana.visao-dia .colunas-dias {
+    grid-template-columns: 1fr;
+  }
+
+  .grade-semana.visao-dia .grade-scroll {
+    max-height: 70vh;
+  }
+
+  .grade-semana.visao-dia .evento-bloco {
+    font-size: 0.8rem;
+  }
+
+  .grade-semana.visao-dia .evento-bloco span {
+    font-size: 0.72rem;
+  }
+
+  .grade-semana.visao-dia .chip-dia-inteiro {
+    font-size: 0.75rem;
   }
 }
