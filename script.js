@@ -1,7 +1,7 @@
 const DIAS_ABREV = ['SEG.', 'TER.', 'QUA.', 'QUI.', 'SEX.', 'SÁB.', 'DOM.'];
 const MESES_ABREV = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-const HORA_ALTURA_PX = 48;
 const CHAVE_STORAGE = 'agenda_semana_eventos_v1';
+const CONSULTA_TELA_ESTREITA = window.matchMedia('(max-width: 640px)');
 
 const PALETA = [
   { nome: 'Vinho', cor: '#7C4054' },
@@ -13,9 +13,15 @@ const PALETA = [
 ];
 
 let corSelecionada = PALETA[0].cor;
+let corCustomInput = null;
 let eventos = {}; // { "2026-08-26": [{id, titulo, cor, diaInteiro, inicio, fim}] }
 let weekStart = getMonday(new Date());
 let diaSelecionado = null;
+let eventoEmEdicao = null;
+let rascunhoAntesDeEditar = null;
+let chaveFocoPainel = null;
+let chaveDiaRenderizado = null;
+let indiceDiaMovel = null;
 
 const weekLabel = document.getElementById('week-label');
 const cabecalhoDias = document.getElementById('cabecalho-dias');
@@ -23,6 +29,7 @@ const diaInteiroLinha = document.getElementById('dia-inteiro-linha');
 const gutterHoras = document.getElementById('gutter-horas');
 const colunasDias = document.getElementById('colunas-dias');
 const gradeScroll = document.getElementById('grade-scroll');
+const gradeSemana = document.querySelector('.grade-semana');
 
 const painelOverlay = document.getElementById('painel-overlay');
 const painelTituloDia = document.getElementById('painel-titulo-dia');
@@ -34,6 +41,8 @@ const inputInicio = document.getElementById('input-inicio');
 const inputFim = document.getElementById('input-fim');
 const inputTitulo = document.getElementById('input-titulo');
 const coresPicker = document.getElementById('cores-picker');
+const btnSalvar = document.getElementById('btn-salvar');
+const btnCancelarEdicao = document.getElementById('btn-cancelar-edicao');
 
 function getMonday(date) {
   const d = new Date(date);
@@ -55,6 +64,105 @@ function mesmoDay(a, b) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+function diasDaSemana() {
+  const dias = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + i);
+    dias.push(d);
+  }
+  return dias;
+}
+
+function visaoDiaUnico() {
+  return CONSULTA_TELA_ESTREITA.matches;
+}
+
+function indiceDiaEmFoco(dias) {
+  if (indiceDiaMovel == null || indiceDiaMovel < 0 || indiceDiaMovel > 6) {
+    const hoje = new Date();
+    const encontrado = dias.findIndex((d) => mesmoDay(d, hoje));
+    indiceDiaMovel = encontrado === -1 ? 0 : encontrado;
+  }
+  return indiceDiaMovel;
+}
+
+function alturaHora() {
+  const valor = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hora-altura'));
+  return Number.isFinite(valor) && valor > 0 ? valor : 48;
+}
+
+function minutosDeHorario(horario) {
+  const [h, m] = horario.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function formatarHorario(minutos) {
+  const limitado = Math.max(0, Math.min(minutos, 23 * 60 + 59));
+  const h = Math.floor(limitado / 60);
+  const m = limitado % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function intervaloVisual(ev) {
+  const ini = minutosDeHorario(ev.inicio);
+  const fimReal = minutosDeHorario(ev.fim);
+  const fim = Math.min(24 * 60, Math.max(fimReal, ini + 20));
+  return { ini, fim };
+}
+
+function horarioDoClique(event, coluna) {
+  const y = event.clientY - coluna.getBoundingClientRect().top;
+  const minutos = Math.max(0, (y / alturaHora()) * 60);
+  const inicioMin = Math.min(Math.floor(minutos / 30) * 30, 23 * 60);
+  const fimMin = Math.min(inicioMin + 60, 23 * 60 + 59);
+  return { inicio: formatarHorario(inicioMin), fim: formatarHorario(fimMin) };
+}
+
+function distribuirColunas(lista) {
+  const ordenados = [...lista].sort((a, b) => {
+    const ia = intervaloVisual(a);
+    const ib = intervaloVisual(b);
+    if (ia.ini !== ib.ini) return ia.ini - ib.ini;
+    return ib.fim - ia.fim;
+  });
+
+  const grupos = [];
+  let grupo = [];
+  let fimGrupo = -1;
+  ordenados.forEach((ev) => {
+    const { ini, fim } = intervaloVisual(ev);
+    if (grupo.length > 0 && ini >= fimGrupo) {
+      grupos.push(grupo);
+      grupo = [];
+      fimGrupo = -1;
+    }
+    grupo.push(ev);
+    fimGrupo = Math.max(fimGrupo, fim);
+  });
+  if (grupo.length > 0) grupos.push(grupo);
+
+  const posicoes = new Map();
+  grupos.forEach((itens) => {
+    const fins = [];
+    itens.forEach((ev) => {
+      const { ini, fim } = intervaloVisual(ev);
+      let coluna = fins.findIndex((fimColuna) => fimColuna <= ini);
+      if (coluna === -1) {
+        coluna = fins.length;
+        fins.push(fim);
+      } else {
+        fins[coluna] = fim;
+      }
+      posicoes.set(ev, { coluna, total: 0 });
+    });
+    itens.forEach((ev) => {
+      posicoes.get(ev).total = fins.length;
+    });
+  });
+  return posicoes;
+}
+
 function carregarEventos() {
   try {
     const raw = localStorage.getItem(CHAVE_STORAGE);
@@ -72,6 +180,18 @@ function salvarEventos() {
   }
 }
 
+function selecionarCor(cor) {
+  corSelecionada = cor;
+  const amostras = [...coresPicker.querySelectorAll('.cor-swatch')];
+  const igual = amostras.find((el) => el.dataset.cor.toLowerCase() === String(cor).toLowerCase());
+  amostras.forEach((el) => el.classList.toggle('selecionada', el === igual));
+  if (!corCustomInput) return;
+  corCustomInput.classList.toggle('selecionada', !igual);
+  if (!igual && /^#[0-9a-fA-F]{6}$/.test(cor) && corCustomInput.value.toLowerCase() !== cor.toLowerCase()) {
+    corCustomInput.value = cor.toLowerCase();
+  }
+}
+
 function montarSeletorCores() {
   coresPicker.innerHTML = '';
   PALETA.forEach(({ nome, cor }) => {
@@ -81,44 +201,28 @@ function montarSeletorCores() {
     swatch.style.background = cor;
     swatch.dataset.cor = cor;
     swatch.setAttribute('aria-label', nome);
-    if (cor === corSelecionada) swatch.classList.add('selecionada');
-
-    swatch.addEventListener('click', () => {
-      corSelecionada = cor;
-      corCustomInput.classList.remove('selecionada');
-      [...coresPicker.querySelectorAll('.cor-swatch')].forEach((el) => {
-        el.classList.toggle('selecionada', el.dataset.cor === cor);
-      });
-    });
-
+    swatch.addEventListener('click', () => selecionarCor(cor));
     coresPicker.appendChild(swatch);
   });
 
-  const corCustomInput = document.createElement('input');
+  corCustomInput = document.createElement('input');
   corCustomInput.type = 'color';
   corCustomInput.className = 'cor-custom';
-  corCustomInput.value = corSelecionada;
+  corCustomInput.value = PALETA[0].cor;
   corCustomInput.title = 'Escolher outra cor';
   corCustomInput.setAttribute('aria-label', 'Escolher cor personalizada');
-
-  corCustomInput.addEventListener('input', () => {
-    corSelecionada = corCustomInput.value;
-    corCustomInput.classList.add('selecionada');
-    [...coresPicker.querySelectorAll('.cor-swatch')].forEach((el) => {
-      el.classList.remove('selecionada');
-    });
-  });
-
+  corCustomInput.addEventListener('input', () => selecionarCor(corCustomInput.value));
   coresPicker.appendChild(corCustomInput);
+  selecionarCor(corSelecionada);
 }
 
-function montarGutterHoras() {
+function montarGutterHoras(altura) {
   gutterHoras.innerHTML = '';
-  gutterHoras.style.height = `${24 * HORA_ALTURA_PX}px`;
+  gutterHoras.style.height = `${24 * altura}px`;
   for (let h = 0; h < 24; h++) {
     const rotulo = document.createElement('div');
     rotulo.className = 'rotulo-hora';
-    rotulo.style.top = `${h * HORA_ALTURA_PX}px`;
+    rotulo.style.top = `${h * altura}px`;
     rotulo.textContent = `${String(h).padStart(2, '0')}:00`;
     gutterHoras.appendChild(rotulo);
   }
@@ -135,31 +239,64 @@ function formatarLabelSemana(dias) {
   return `${inicio.getDate()} ${mesInicio} – ${fim.getDate()} ${mesFim}, ${fim.getFullYear()}`;
 }
 
+function nomeDia(data) {
+  const bruto = data.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+  return bruto.charAt(0).toUpperCase() + bruto.slice(1);
+}
+
 function renderSemana() {
+  const altura = alturaHora();
+  const visaoUnica = visaoDiaUnico();
   const hoje = new Date();
-  const dias = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(weekStart);
-    d.setDate(weekStart.getDate() + i);
-    dias.push(d);
-  }
+  const dias = diasDaSemana();
+  const indice = indiceDiaEmFoco(dias);
+  const diasGrade = visaoUnica ? [dias[indice]] : dias;
 
+  chaveDiaRenderizado = formatarChave(hoje);
+  gradeSemana.classList.toggle('visao-dia', visaoUnica);
   weekLabel.textContent = formatarLabelSemana(dias);
+  montarGutterHoras(altura);
 
-  // Cabeçalho dos dias
   cabecalhoDias.querySelectorAll('.dia-header').forEach((el) => el.remove());
-  dias.forEach((d) => {
+  dias.forEach((d, i) => {
     const ehHoje = mesmoDay(d, hoje);
-    const col = document.createElement('div');
+    const col = document.createElement('button');
+    col.type = 'button';
     col.className = 'dia-header' + (ehHoje ? ' hoje' : '');
-    col.innerHTML = `<div class="abrev">${DIAS_ABREV[(d.getDay() + 6) % 7]}</div><div class="numero">${d.getDate()}</div>`;
-    col.addEventListener('click', () => abrirPainel(d));
+    col.dataset.chave = formatarChave(d);
+    col.setAttribute('aria-label', nomeDia(d));
+    if (ehHoje) col.setAttribute('aria-current', 'date');
+
+    const abrev = document.createElement('div');
+    abrev.className = 'abrev';
+    abrev.textContent = DIAS_ABREV[(d.getDay() + 6) % 7];
+    const numero = document.createElement('div');
+    numero.className = 'numero';
+    numero.textContent = String(d.getDate());
+    col.append(abrev, numero);
+
+    if (visaoUnica) {
+      col.setAttribute('aria-pressed', i === indice ? 'true' : 'false');
+      if (i === indice) col.classList.add('selecionado');
+    }
+
+    col.addEventListener('click', () => {
+      if (!visaoUnica) {
+        abrirPainel(d);
+        return;
+      }
+      if (indiceDiaMovel === i) {
+        abrirPainel(d);
+        return;
+      }
+      indiceDiaMovel = i;
+      renderSemana();
+    });
     cabecalhoDias.appendChild(col);
   });
 
-  // Linha de eventos de dia inteiro
   diaInteiroLinha.querySelectorAll('.coluna-dia-inteiro').forEach((el) => el.remove());
-  dias.forEach((d) => {
+  diasGrade.forEach((d) => {
     const chave = formatarChave(d);
     const col = document.createElement('div');
     col.className = 'coluna-dia-inteiro';
@@ -169,70 +306,174 @@ function renderSemana() {
       chip.className = 'chip-dia-inteiro';
       chip.style.background = ev.cor;
       chip.textContent = ev.titulo;
+      chip.addEventListener('click', (e) => {
+        e.stopPropagation();
+        abrirPainel(d, { evento: ev });
+      });
       col.appendChild(chip);
     });
-    col.addEventListener('click', () => abrirPainel(d));
+    col.addEventListener('click', (e) => {
+      if (e.target !== col) return;
+      abrirPainel(d, { diaInteiro: true });
+    });
     diaInteiroLinha.appendChild(col);
   });
 
-  // Colunas com grade de horários
   colunasDias.innerHTML = '';
-  colunasDias.style.height = `${24 * HORA_ALTURA_PX}px`;
-  dias.forEach((d) => {
+  colunasDias.style.height = `${24 * altura}px`;
+  diasGrade.forEach((d) => {
     const ehHoje = mesmoDay(d, hoje);
     const chave = formatarChave(d);
     const col = document.createElement('div');
     col.className = 'coluna-dia' + (ehHoje ? ' hoje' : '');
     col.addEventListener('click', (e) => {
-      if (e.target === col) abrirPainel(d);
+      if (e.target !== col) return;
+      abrirPainel(d, horarioDoClique(e, col));
     });
 
-    const lista = (eventos[chave] || []).filter((ev) => !ev.diaInteiro);
+    const lista = (eventos[chave] || []).filter((ev) => !ev.diaInteiro && ev.inicio && ev.fim);
+    const posicoes = distribuirColunas(lista);
     lista.forEach((ev) => {
-      const [hIni, mIni] = ev.inicio.split(':').map(Number);
-      const [hFim, mFim] = ev.fim.split(':').map(Number);
-      const minutosIni = hIni * 60 + mIni;
-      const minutosFim = Math.max(hFim * 60 + mFim, minutosIni + 20);
-
+      const { ini, fim } = intervaloVisual(ev);
+      const pos = posicoes.get(ev);
       const bloco = document.createElement('div');
       bloco.className = 'evento-bloco';
-      bloco.style.top = `${(minutosIni / 60) * HORA_ALTURA_PX}px`;
-      bloco.style.height = `${((minutosFim - minutosIni) / 60) * HORA_ALTURA_PX}px`;
+      bloco.style.top = `${(ini / 60) * altura}px`;
+      bloco.style.height = `${((fim - ini) / 60) * altura}px`;
+      bloco.style.left = `calc(${(pos.coluna / pos.total) * 100}% + 1px)`;
+      bloco.style.width = `calc(${100 / pos.total}% - 2px)`;
       bloco.style.background = ev.cor;
-      bloco.innerHTML = `<strong>${ev.titulo}</strong><span>${ev.inicio} – ${ev.fim}</span>`;
+
+      const titulo = document.createElement('strong');
+      titulo.textContent = ev.titulo;
+      const hora = document.createElement('span');
+      hora.textContent = `${ev.inicio} – ${ev.fim}`;
+      bloco.append(titulo, hora);
+
       bloco.addEventListener('click', (e) => {
         e.stopPropagation();
-        abrirPainel(d);
+        abrirPainel(d, { evento: ev });
       });
       col.appendChild(bloco);
     });
 
-    if (ehHoje) {
-      const minutosAgora = hoje.getHours() * 60 + hoje.getMinutes();
-      const linhaAgora = document.createElement('div');
-      linhaAgora.className = 'linha-tempo-atual';
-      linhaAgora.style.top = `${(minutosAgora / 60) * HORA_ALTURA_PX}px`;
-      col.appendChild(linhaAgora);
-    }
-
     colunasDias.appendChild(col);
   });
+
+  posicionarLinhaAgora();
 }
 
-function abrirPainel(data) {
+function posicionarLinhaAgora() {
+  const coluna = colunasDias.querySelector('.coluna-dia.hoje');
+  let linha = colunasDias.querySelector('.linha-tempo-atual');
+  if (!coluna) {
+    if (linha) linha.remove();
+    return;
+  }
+  if (!linha) {
+    linha = document.createElement('div');
+    linha.className = 'linha-tempo-atual';
+  }
+  const agora = new Date();
+  const minutos = agora.getHours() * 60 + agora.getMinutes();
+  linha.style.top = `${(minutos / 60) * alturaHora()}px`;
+  if (linha.parentElement !== coluna) coluna.appendChild(linha);
+}
+
+function atualizarLinhaAgora() {
+  const chaveHoje = formatarChave(new Date());
+  if (chaveHoje !== chaveDiaRenderizado) {
+    renderSemana();
+    return;
+  }
+  posicionarLinhaAgora();
+}
+
+// No minuto cheio. A grade só é recriada quando o dia muda.
+function agendarLinhaAgora() {
+  const agora = new Date();
+  const espera = 60000 - (agora.getSeconds() * 1000 + agora.getMilliseconds());
+  setTimeout(() => {
+    atualizarLinhaAgora();
+    agendarLinhaAgora();
+  }, espera);
+}
+
+function abrirPainel(data, opcoes = {}) {
   diaSelecionado = data;
-  const bruto = data.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
-  painelTituloDia.textContent = bruto.charAt(0).toUpperCase() + bruto.slice(1);
+  chaveFocoPainel = formatarChave(data);
+  rascunhoAntesDeEditar = null;
+  painelTituloDia.textContent = nomeDia(data);
+  if (opcoes.evento) prepararFormularioEdicao(opcoes.evento);
+  else prepararFormularioNovo(opcoes);
   renderizarListaPainel();
   painelOverlay.hidden = false;
   inputTitulo.focus();
+  if (opcoes.evento) inputTitulo.select();
 }
 
 function fecharPainel() {
+  if (painelOverlay.hidden) return;
   painelOverlay.hidden = true;
-  painelForm.reset();
-  inputDiaInteiro.checked = false;
-  linhaHoras.style.display = 'flex';
+  rascunhoAntesDeEditar = null;
+  prepararFormularioNovo();
+  const alvo = chaveFocoPainel && cabecalhoDias.querySelector(`[data-chave="${chaveFocoPainel}"]`);
+  if (alvo) alvo.focus();
+}
+
+function atualizarAcaoFormulario() {
+  const editando = eventoEmEdicao !== null;
+  btnSalvar.textContent = editando ? '✓' : '+';
+  btnSalvar.setAttribute('aria-label', editando ? 'Salvar alterações' : 'Adicionar evento');
+  btnCancelarEdicao.hidden = !editando;
+}
+
+function prepararFormularioNovo({ titulo = '', inicio = '09:00', fim = '10:00', diaInteiro = false } = {}) {
+  eventoEmEdicao = null;
+  inputTitulo.value = titulo;
+  inputDiaInteiro.checked = diaInteiro;
+  linhaHoras.style.display = diaInteiro ? 'none' : 'flex';
+  inputInicio.value = inicio || '09:00';
+  inputFim.value = fim || '10:00';
+  inputFim.setCustomValidity('');
+  atualizarAcaoFormulario();
+}
+
+function prepararFormularioEdicao(ev) {
+  eventoEmEdicao = ev.id;
+  inputTitulo.value = ev.titulo;
+  inputDiaInteiro.checked = Boolean(ev.diaInteiro);
+  linhaHoras.style.display = ev.diaInteiro ? 'none' : 'flex';
+  inputInicio.value = ev.inicio || '09:00';
+  inputFim.value = ev.fim || '10:00';
+  inputFim.setCustomValidity('');
+  selecionarCor(ev.cor);
+  atualizarAcaoFormulario();
+}
+
+function lerFormulario() {
+  return {
+    titulo: inputTitulo.value,
+    diaInteiro: inputDiaInteiro.checked,
+    inicio: inputInicio.value,
+    fim: inputFim.value,
+  };
+}
+
+function iniciarEdicao(ev) {
+  if (eventoEmEdicao === null) rascunhoAntesDeEditar = lerFormulario();
+  prepararFormularioEdicao(ev);
+  renderizarListaPainel();
+  inputTitulo.focus();
+  inputTitulo.select();
+}
+
+function cancelarEdicao() {
+  const rascunho = rascunhoAntesDeEditar;
+  rascunhoAntesDeEditar = null;
+  prepararFormularioNovo(rascunho || {});
+  renderizarListaPainel();
+  inputTitulo.focus();
 }
 
 function renderizarListaPainel() {
@@ -255,9 +496,12 @@ function renderizarListaPainel() {
 
   lista.forEach((ev) => {
     const item = document.createElement('li');
+    if (ev.id === eventoEmEdicao) item.classList.add('editando');
 
-    const info = document.createElement('div');
-    info.className = 'evento-info';
+    const btnEditar = document.createElement('button');
+    btnEditar.type = 'button';
+    btnEditar.className = 'evento-info';
+    btnEditar.addEventListener('click', () => iniciarEdicao(ev));
 
     const ponto = document.createElement('span');
     ponto.className = 'ponto';
@@ -271,45 +515,65 @@ function renderizarListaPainel() {
     const hora = document.createElement('span');
     hora.className = 'hora';
     hora.textContent = ev.diaInteiro ? 'Dia inteiro' : `${ev.inicio} – ${ev.fim}`;
-    txt.appendChild(titulo);
-    txt.appendChild(hora);
-
-    info.appendChild(ponto);
-    info.appendChild(txt);
+    txt.append(titulo, hora);
+    btnEditar.append(ponto, txt);
 
     const btnRemover = document.createElement('button');
+    btnRemover.type = 'button';
+    btnRemover.className = 'btn-remover';
     btnRemover.textContent = '×';
     btnRemover.setAttribute('aria-label', `Remover evento ${ev.titulo}`);
     btnRemover.addEventListener('click', () => removerEvento(ev.id));
 
-    item.appendChild(info);
-    item.appendChild(btnRemover);
+    item.append(btnEditar, btnRemover);
     painelLista.appendChild(item);
   });
+
+  const destacado = painelLista.querySelector('.editando');
+  if (destacado) destacado.scrollIntoView({ block: 'nearest' });
 }
 
-function adicionarEvento(dados) {
+function gravarEvento(dados) {
   const chave = formatarChave(diaSelecionado);
   if (!eventos[chave]) eventos[chave] = [];
-  eventos[chave].push({ id: Date.now().toString(), ...dados });
+  if (eventoEmEdicao) {
+    const indice = eventos[chave].findIndex((ev) => ev.id === eventoEmEdicao);
+    if (indice !== -1) eventos[chave][indice] = { ...eventos[chave][indice], ...dados };
+    eventoEmEdicao = null;
+  } else {
+    eventos[chave].push({ id: Date.now().toString(), ...dados });
+  }
+  rascunhoAntesDeEditar = null;
   salvarEventos();
+  atualizarAcaoFormulario();
   renderizarListaPainel();
   renderSemana();
 }
 
 function removerEvento(id) {
   const chave = formatarChave(diaSelecionado);
+  const editava = eventoEmEdicao === id;
   eventos[chave] = (eventos[chave] || []).filter((ev) => ev.id !== id);
   if (eventos[chave].length === 0) delete eventos[chave];
   salvarEventos();
+  if (editava) {
+    const rascunho = rascunhoAntesDeEditar;
+    rascunhoAntesDeEditar = null;
+    prepararFormularioNovo(rascunho || {});
+  }
   renderizarListaPainel();
   renderSemana();
 }
 
 function scrollParaAgora() {
+  const dias = diasDaSemana();
   const hoje = new Date();
-  const offset = Math.max(0, (hoje.getHours() - 2) * HORA_ALTURA_PX);
-  gradeScroll.scrollTop = offset;
+  if (visaoDiaUnico()) {
+    if (!mesmoDay(dias[indiceDiaEmFoco(dias)], hoje)) return;
+  } else if (!dias.some((d) => mesmoDay(d, hoje))) {
+    return;
+  }
+  gradeScroll.scrollTop = Math.max(0, (hoje.getHours() - 2) * alturaHora());
 }
 
 document.getElementById('prev-week').addEventListener('click', () => {
@@ -324,15 +588,27 @@ document.getElementById('next-week').addEventListener('click', () => {
 
 document.getElementById('btn-hoje').addEventListener('click', () => {
   weekStart = getMonday(new Date());
+  indiceDiaMovel = null;
   renderSemana();
   scrollParaAgora();
 });
 
 document.getElementById('painel-fechar').addEventListener('click', fecharPainel);
+painelOverlay.addEventListener('click', (e) => {
+  if (e.target === painelOverlay) fecharPainel();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !painelOverlay.hidden) fecharPainel();
+});
 
 inputDiaInteiro.addEventListener('change', () => {
   linhaHoras.style.display = inputDiaInteiro.checked ? 'none' : 'flex';
 });
+
+inputInicio.addEventListener('input', () => inputFim.setCustomValidity(''));
+inputFim.addEventListener('input', () => inputFim.setCustomValidity(''));
+
+btnCancelarEdicao.addEventListener('click', cancelarEdicao);
 
 painelForm.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -340,7 +616,6 @@ painelForm.addEventListener('submit', (e) => {
   if (!titulo) return;
 
   const diaInteiro = inputDiaInteiro.checked;
-
   if (!diaInteiro && inputInicio.value >= inputFim.value) {
     inputFim.setCustomValidity('O horário final precisa ser depois do inicial.');
     inputFim.reportValidity();
@@ -348,22 +623,24 @@ painelForm.addEventListener('submit', (e) => {
   }
   inputFim.setCustomValidity('');
 
-  adicionarEvento({
+  gravarEvento({
     titulo,
     cor: corSelecionada,
     diaInteiro,
     inicio: diaInteiro ? null : inputInicio.value,
     fim: diaInteiro ? null : inputFim.value,
   });
-
   inputTitulo.value = '';
+  inputTitulo.focus();
 });
 
-// Atualiza a linha de "agora" a cada minuto
-setInterval(renderSemana, 60000);
+CONSULTA_TELA_ESTREITA.addEventListener('change', () => {
+  renderSemana();
+  scrollParaAgora();
+});
 
 montarSeletorCores();
-montarGutterHoras();
 carregarEventos();
 renderSemana();
 scrollParaAgora();
+agendarLinhaAgora();
